@@ -1,21 +1,530 @@
 <!doctype html>
-<html>
+<html lang="vi">
 <head>
-    <title>bksysnet@hcmut welcome</title>
-
-    <meta charset="utf-8" />
-    <meta http-equiv="Content-type" content="text/html; charset=utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="css/styles.css" />
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>P2P Chat — Index</title>
+<style>
+:root{font-family: Inter,"Segoe UI",Roboto,Arial,sans-serif}
+body{margin:0;height:100vh;background:linear-gradient(180deg,#eef2ff,#f7fbff);
+display:flex;align-items:stretch;padding:18px;box-sizing:border-box}
+.app{display:flex;flex:1;gap:18px;min-height:0}
+/* sidebar */
+.sidebar{width:320px;display:flex;flex-direction:column;gap:14px}
+.panel{background:#fff;border-radius:10px;box-shadow:0 6px 18px rgba(16,24,40,0.06);
+overflow:hidden;display:flex;flex-direction:column;min-height:0}
+.panel .head{padding:12px 14px;font-weight:700;border-bottom:1px solid #eef2ff}
+.panel .body{padding:10px;overflow:auto;min-height:0}
+ul{list-style:none;margin:0;padding:0}
+li.peer{padding:10px;border-radius:8px;margin-bottom:8px;display:flex;
+justify-content:space-between;align-items:center;border:1px solid #f0f2f7;cursor:pointer}
+li.peer:hover{background:#fbfdff}
+li.peer.active{background:#e8f0ff;border-color:#cfe0ff}
+.peer small{display:block;color:#666;font-weight:500;font-size:12px}
+.btn{padding:8px 12px;border-radius:8px;border:1px solid #dbe6ff;background:#fff;cursor:pointer}
+.btn.primary{background:#2563eb;color:#fff;border:none}
+.small-muted{font-size:12px;color:#666;margin-top:6px}
+.notifications li{padding:8px;border-radius:6px;background:#fff;margin-bottom:8px;
+border:1px solid #f0f3ff;font-size:13px}
+/* main area */
+.main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+.panel.table{flex:1;min-height:160px}
+table{width:100%;border-collapse:collapse}
+th,td{padding:10px;border-bottom:1px solid #f3f6ff;text-align:left;font-size:14px}
+thead th{background:#fbfdff;font-weight:700}
+.register-row{display:flex;gap:10px;align-items:center}
+input[type="text"]{padding:8px 10px;border-radius:8px;border:1px solid #d8e3ff;flex:1}
+/* chat area */
+.chat{flex:1;display:flex;flex-direction:column;min-height:0;margin-top:12px}
+.chat .header{padding:12px 14px;font-weight:700;border-bottom:1px solid #eef2ff;background:#fff;border-radius:8px 8px 0 0}
+.messages{flex:1;padding:14px;overflow:auto;background:linear-gradient(180deg,#fff,#fbfcff);
+display:flex;flex-direction:column;gap:10px}
+.msg{max-width:70%;padding:10px 14px;border-radius:16px;word-break:break-word}
+.msg.me{align-self:flex-end;background:#0ea5e9;color:white;border-radius:16px 16px 4px 16px}
+.msg.peer{align-self:flex-start;background:#f3f6ff;color:#111;border-radius:16px 16px 16px 4px}
+.chat-input{display:flex;gap:10px;padding:12px;border-top:1px solid #eef2ff;background:#fff;border-radius:0 0 8px 8px}
+.chat-input input{flex:1;padding:10px;border-radius:10px;border:1px solid #d8e3ff}
+</style>
 </head>
-
 <body>
-<div>
-    <h1>bksysnet@hcmut  Domain</h1>
-    <p>This domain is for use in illustrative examples in documents.
-    </p>
-  
-       <img src="images/welcome.png" alt="bksysnet at HCMUT" width="500" height="600">  
+<div class="app">
+<aside class="sidebar">
+  <div class="panel">
+    <div class="head">Thông tin cá nhân</div>
+    <div class="body">
+      <div><strong>IP:</strong> <span id="my-ip">—</span></div>
+      <div class="small-muted"><strong>Port:</strong> <span id="my-port">—</span></div>
+      <div class="small-muted" style="margin-top:8px">Bạn phải <strong>register</strong> để xuất hiện trong danh sách peer.</div>
+    </div>
+  </div>
+  <div class="panel" style="flex:1;min-height:0">
+    <div class="head">Peers đang hoạt động</div>
+    <div class="body">
+      <ul id="connected-peers-list">
+        <li class="peer" id="global-chat-peer" style="background:#f0fdf4;border-color:#86efac">
+          <div><strong>🌐 Kênh Chat Tổng</strong><small>Chat với tất cả mọi người</small></div>
+        </li>
+      </ul>
+      <div class="small-muted" style="margin-top:8px">Chỉ peer đã đăng ký mới hiển thị ở đây.</div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="head">Notifications</div>
+    <div class="body"><ul id="notifications-list"></ul></div>
+  </div>
+</aside>
+<main class="main">
+  <div class="panel table">
+    <div class="head">All peers (proxy list)</div>
+    <div class="body" style="min-height:180px">
+      <table>
+        <thead>
+          <tr>
+            <th>Peer username</th>
+            <th>IP</th>
+            <th>Port</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="user-list-tbody">
+          <tr><td colspan="4" style="text-align:center;color:#888">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="panel" style="margin-top:12px">
+    <div class="head">Register</div>
+    <div class="body">
+      <div class="register-row">
+        <input id="username" type="text" placeholder="Nhập tên user của bạn" />
+        <button id="registerBtn" class="btn primary">Register</button>
+        <button id="refreshAllBtn" class="btn">Refresh</button>
+      </div>
+      <div id="registerStatus" class="small-muted"></div>
+    </div>
+  </div>
+  <div class="panel chat">
+    <div class="header" id="chat-header">🌐 Kênh Chat Tổng</div>
+    <div class="messages" id="chat-messages">
+      <div style="color:#666">Chọn một peer trong danh sách để bắt đầu chat.</div>
+    </div>
+    <div class="chat-input">
+      <input id="chat-input" placeholder="Nhập tin nhắn..." />
+      <button id="chat-send-btn" class="btn primary">Send</button>
+    </div>
+  </div>
+</main>
 </div>
+
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+let currentPort = window.location.port;
+let role = 'peer';
+  if (currentPort === '9000') {
+    role = 'tracker';
+  }
+let trackerBase = `http://127.0.0.1:9000`; // tracker mặc định
+const peerBase = '';
+
+// ==== STATE ====
+let myUsername = null;
+let myIp = null;
+let myPort = null;
+let selectedPeer = null;
+const peerMessages = {}; // { "ip:port": [ {sender,text,me} ] }
+const globalMessages = []; // Tin nhắn kênh tổng
+let lastConnectedPeers = [];
+let hasRegistered = false;
+let isGlobalChatSelected = true; // Mặc định chọn kênh tổng
+
+// ==== DOM ====
+const myIpEl = $('my-ip'), myPortEl = $('my-port');
+const userListTbody = $('user-list-tbody');
+const connectedPeersList = $('connected-peers-list');
+const notificationsList = $('notifications-list');
+
+const registerBtn = $('registerBtn');
+const refreshAllBtn = $('refreshAllBtn'), registerStatus = $('registerStatus');
+const chatHeader = $('chat-header'), chatMessages = $('chat-messages');
+const chatInput = $('chat-input'), chatSendBtn = $('chat-send-btn');
+
+// ================================================
+// ==== API Layer ====
+// ================================================
+const API = {
+  /**
+   * Gọi đến Tracker Server (port 9000)
+   */
+  async tracker(endpoint, options = {}) {
+    const url = trackerBase + endpoint;
+    return await this._fetch(url, options);
+  },
+
+  /**
+   * Gọi đến Peer Server hiện tại (ví dụ port 8000)
+   */
+  async peer(endpoint, options = {}) {
+    const url = peerBase + endpoint;
+    return await this._fetch(url, options);
+  },
+
+  /**
+   * Gọi trực tiếp đến một Peer khác (IP:Port)
+   */
+  async direct(url, options = {}) {
+    return await this._fetch(url, options);
+  },
+
+  /**
+   * Hàm fetch() nội bộ, xử lý JSON và lỗi
+   */
+  async _fetch(url, options) {
+    try {
+      const res = await fetch(url, options);
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+      return await res.json();
+    } catch (e) {
+      console.error(`Fetch error for ${url}:`, e);
+      throw e; //Ném lỗi ra để hàm gọi có thể bắt
+    }
+  }
+};
+
+// ==== HELPERS ====
+function escapeHtml(s){return (s+'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[c]));}
+function appendNotification(msg){
+  const li = document.createElement('li');
+  li.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  notificationsList.prepend(li);
+  console.log('Notification:', msg); // Log thông báo
+}
+
+// ==== RENDER ====
+function showLocalAddress(){
+  const url = new URL(window.location.href);
+  myIp = url.hostname;
+  myPort = url.port || (url.protocol==='https:'?'443':'80');
+  myIpEl.textContent = myIp;
+  myPortEl.textContent = myPort;
+}
+
+function renderUserTable(peers){
+  userListTbody.innerHTML = '';
+  if(!peers || peers.length===0){
+    userListTbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888">No peers found.</td></tr>';
+    return;
+  }
+  peers.forEach(p=>{
+    const tr = document.createElement('tr');
+    const peerName = p.username || `${p.ip}:${p.port}`;
+    const isMe = p.ip === myIp && String(p.port) === String(myPort);
+    
+    tr.innerHTML = `<td>${escapeHtml(peerName)}${isMe?' <span style="color:#10b981;font-weight:700">(Bạn)</span>':''}</td>
+                    <td>${escapeHtml(p.ip||'')}</td>
+                    <td>${escapeHtml(p.port||'')}</td>
+                    <td>${isMe?'<span style="color:#888">—</span>':`<button class="btn" data-ip="${escapeHtml(p.ip)}" data-port="${escapeHtml(p.port)}" data-username="${escapeHtml(peerName)}">Connect</button>`}</td>`;
+    
+    if(!isMe){
+      const btn = tr.querySelector('button');
+      if(btn) btn.addEventListener('click',e=>startConnect(e.target.dataset.ip,e.target.dataset.port,e.target.dataset.username));
+    }
+    userListTbody.appendChild(tr);
+  });
+}
+
+function renderConnectedPeers(peers){
+  connectedPeersList.innerHTML='';
+  
+  // Thêm kênh chat tổng
+  const globalLi = document.createElement('li');
+  globalLi.className = 'peer' + (isGlobalChatSelected ? ' active' : '');
+  globalLi.id = 'global-chat-peer';
+  globalLi.style.background = isGlobalChatSelected ? '#d1fae5' : '#f0fdf4';
+  globalLi.style.borderColor = '#86efac';
+  globalLi.innerHTML = `<div><strong>🌐 Kênh Chat Tổng</strong><small>Chat với tất cả mọi người</small></div>`;
+  globalLi.addEventListener('click', selectGlobalChat);
+  connectedPeersList.appendChild(globalLi);
+  
+  if(!peers||peers.length===0){
+    return;
+  }
+  
+  peers.forEach(p=>{
+    // Không hiển thị bản thân trong danh sách connected peers
+    if(p.ip === myIp && String(p.port) === String(myPort)) return;
+    
+    const li=document.createElement('li');
+    li.className='peer'+(selectedPeer && selectedPeer.ip===p.ip && String(selectedPeer.port)===String(p.port) && !isGlobalChatSelected?' active':'');
+    const displayName = p.username || 'Đã kết nối';
+    li.innerHTML=`<div><strong>${escapeHtml(p.ip)}:${escapeHtml(p.port)}</strong><small>${escapeHtml(displayName)}</small></div>`;
+    li.addEventListener('click',()=>selectPeer(p));
+    connectedPeersList.appendChild(li);
+  });
+}
+
+function renderChat(peer){
+  if(!peer){
+    // Hiển thị kênh chat tổng
+    chatMessages.innerHTML='';
+    if(globalMessages.length===0){
+      chatMessages.innerHTML='<div style="color:#666">Chưa có tin nhắn trong kênh tổng. Hãy gửi tin nhắn đầu tiên!</div>';
+      return;
+    }
+    globalMessages.forEach(m=>{
+      const d=document.createElement('div');
+      d.className='msg '+(m.me?'me':'peer');
+      d.innerHTML=`<strong style="display:block;font-size:13px">${escapeHtml(m.sender)}</strong><div>${escapeHtml(m.text)}</div>`;
+      chatMessages.appendChild(d);
+    });
+    chatMessages.scrollTop=chatMessages.scrollHeight;
+    return;
+  }
+  
+  // Chat 1-1 với peer
+  const key=`${peer.ip}:${peer.port}`;
+  const arr=peerMessages[key]||[];
+  chatMessages.innerHTML='';
+  if(arr.length===0){
+    chatMessages.innerHTML='<div style="color:#666">No messages yet. Say hi!</div>';
+    return;
+  }
+  arr.forEach(m=>{
+    const d=document.createElement('div');
+    d.className='msg '+(m.me?'me':'peer');
+    d.innerHTML=`<strong style="display:block;font-size:13px">${escapeHtml(m.sender)}</strong><div>${escapeHtml(m.text)}</div>`;
+    chatMessages.appendChild(d);
+  });
+  chatMessages.scrollTop=chatMessages.scrollHeight;
+}
+
+// ==== API ====
+async function fetchPeers(){
+  if(role !== 'peer') return;
+  try{
+    const r = await fetch(trackerBase + '/get-list');
+    const res = await r.json();
+    const peers = res.peers || [];
+    renderUserTable(peers);
+  }catch(e){
+    renderUserTable([]);
+    appendNotification('Error fetching peer list: ' + e.message);
+  }
+}
+
+async function fetchConnectedPeers(){
+  if(role !== 'peer') return;
+  try{
+    const r = await fetch(trackerBase + '/get-connected-peers');
+    const res = await r.json();
+    const peers = res.peers || [];
+    renderConnectedPeers(peers);
+    lastConnectedPeers = peers;
+  }catch(e){
+    renderConnectedPeers([]);
+    appendNotification('Error fetching connected peers: '+e.message);
+  }
+}
+
+async function startConnect(ip,port,username){
+  // Kiểm tra không cho kết nối với bản thân
+  if(ip === myIp && String(port) === String(myPort)){
+    appendNotification('Không thể kết nối với chính bạn!');
+    return;
+  }
+  
+  try{
+    const res = await fetch(peerBase + '/connect-peer',{
+      method:'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body:new URLSearchParams({ip,port})
+    });
+    const data = await res.json();
+    appendNotification('Đã kết nối với ' + username + ': ' + (data.status || 'unknown'));
+    await fetchConnectedPeers();
+    selectPeer({ip,port,username});
+  }catch(e){
+    appendNotification('Lỗi kết nối: '+e.message);
+  }
+}
+
+async function submitInfo(){
+  // Không cho đăng ký nhiều lần
+  if(hasRegistered){
+    registerStatus.textContent='Bạn đã đăng ký rồi!';
+    appendNotification('Không thể đăng ký nhiều lần');
+    return;
+  }
+  
+  const usernameInput = $('username');
+  const user = usernameInput.value.trim();
+  if(!user){registerStatus.textContent='Cần nhập Username';return;}
+
+  try{
+    if(role==='peer'){
+      const body = new URLSearchParams({ip: myIp, port: myPort, username: user});
+      const res = await fetch(trackerBase + '/submit-info',{
+        method:'POST',
+        headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body: body.toString()
+      });
+      const data = await res.json();
+      console.log('Register result:', data);
+
+      hasRegistered=true;
+      myUsername=user;
+      registerStatus.textContent='Đăng ký thành công: ' + (data.status || 'ok');
+      usernameInput.disabled=true;
+      registerBtn.disabled=true;
+      appendNotification(`Đã đăng ký với tên ${user} (Port: ${myPort})`);
+      fetchPeers();
+      fetchConnectedPeers();
+    }
+  }catch(e){
+    console.error('Register failed:', e);
+    registerStatus.textContent='Lỗi đăng ký: '+e.message;
+    appendNotification('Đăng ký thất bại: '+e.message);
+  }
+}
+
+async function sendPeerMessage(){
+  const msg = chatInput.value.trim();
+  if(!msg){appendNotification('Tin nhắn rỗng'); return;}
+  
+  // Nếu đang ở kênh chat tổng
+  if(isGlobalChatSelected){
+    try{
+      const body = new URLSearchParams({
+        sender_ip: myIp,
+        sender_port: myPort,
+        message: msg
+      });
+      
+      const res = await fetch(peerBase + '/broadcast', {method:'POST', body});
+      
+      if(res.ok){
+        globalMessages.push({sender:myUsername||'Bạn',text:msg,me:true});
+        renderChat(null);
+        chatInput.value='';
+        console.log('Đã gửi tin nhắn broadcast:', msg);
+      } else {
+        appendNotification('Lỗi gửi tin broadcast: ' + res.status);
+      }
+    }catch(e){
+      appendNotification('Lỗi gửi broadcast: ' + e.message);
+    }
+    return;
+  }
+  
+  // Chat 1-1
+  if(!selectedPeer){appendNotification('Chưa chọn peer'); return;}
+  
+  try{
+    const body = new URLSearchParams({
+      sender_ip: myIp,
+      sender_port: myPort,
+      message: msg
+    });
+    
+    const targetUrl = `http://${selectedPeer.ip}:${selectedPeer.port}/send-peer`;
+    const res = await fetch(targetUrl, {method:'POST', body});
+    
+    if(res.ok){
+      const key = `${selectedPeer.ip}:${selectedPeer.port}`;
+      peerMessages[key] = peerMessages[key]||[];
+      peerMessages[key].push({sender:myUsername||'Bạn',text:msg,me:true});
+      renderChat(selectedPeer);
+      chatInput.value='';
+      console.log('📤 Đã gửi tin nhắn đến', selectedPeer.username || key);
+    } else {
+      appendNotification('Lỗi gửi tin: ' + res.status);
+    }
+  }catch(e){
+    appendNotification('Lỗi gửi tin: ' + e.message);
+  }
+}
+
+async function pollMessages(){
+  try{
+    const r = await fetch(peerBase + '/get-messages');
+    const data = await r.json();
+    const msgs = data.messages || [];
+    
+    if(!Array.isArray(msgs)) return;
+    
+    for(const m of msgs){
+      const key=`${m.sender_ip}:${m.sender_port}`;
+      const senderName = m.username || key;
+      
+      // Kiểm tra xem có phải tin nhắn broadcast không
+      if(m.broadcast){
+        // Thêm vào kênh chat tổng
+        globalMessages.push({sender:senderName,text:m.message||'',me:false});
+        
+        if(isGlobalChatSelected) {
+          renderChat(null);
+        }
+        appendNotification(`Tin mới từ ${senderName} (Kênh tổng): ${m.message||''}`);
+        console.log('Nhận tin broadcast từ', senderName);
+      } else {
+        // Tin nhắn 1-1
+        peerMessages[key]=peerMessages[key]||[];
+        peerMessages[key].push({sender:senderName,text:m.message||'',me:false});
+        
+        if(selectedPeer && selectedPeer.ip===m.sender_ip && String(selectedPeer.port)===String(m.sender_port) && !isGlobalChatSelected) {
+          renderChat(selectedPeer);
+        }
+        appendNotification(`Tin mới từ ${senderName}: ${m.message||''}`);
+        console.log('Nhận tin 1-1 từ', senderName);
+      }
+    }
+    
+    // Kiểm tra peer mới kết nối
+    const connRes = await fetch(peerBase + '/get-new-connections');
+    const connData = await connRes.json();
+    const newConns = connData.connections || [];
+    
+    for(const conn of newConns){
+      const connName = conn.username || `${conn.ip}:${conn.port}`;
+      appendNotification(`${connName} đã kết nối với bạn!`);
+      console.log('Peer mới kết nối:', connName);
+    }
+    
+  }catch(e){
+    console.error('Poll messages error:', e);
+  }
+}
+
+// ==== EVENTS ====
+function selectPeer(p){
+  isGlobalChatSelected = false;
+  selectedPeer=p; 
+  chatHeader.textContent=`Đang chat với: ${p.username||p.ip}`; 
+  renderChat(p); 
+  renderConnectedPeers(lastConnectedPeers);
+}
+
+function selectGlobalChat(){
+  isGlobalChatSelected = true;
+  selectedPeer = null;
+  chatHeader.textContent = '🌐 Kênh Chat Tổng';
+  renderChat(null);
+  renderConnectedPeers(lastConnectedPeers);
+}
+
+chatSendBtn.addEventListener('click',sendPeerMessage);
+chatInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault(); sendPeerMessage();}});
+registerBtn.addEventListener('click',submitInfo);
+refreshAllBtn.addEventListener('click',()=>{fetchPeers(); fetchConnectedPeers();});
+
+// ==== INIT ====
+showLocalAddress();
+fetchPeers();
+fetchConnectedPeers();
+selectGlobalChat(); // Mặc định chọn kênh tổng
+})();
+</script>
 </body>
 </html>

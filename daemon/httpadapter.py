@@ -1,7 +1,7 @@
 #
 # Copyright (C) 2025 pdnguyen of HCMC University of Technology VNU-HCM.
 # All rights reserved.
-# This file is part of the CO3093/CO3094 course.
+# This file is part of the CO3O93/CO3094 course.
 #
 # WeApRous release
 #
@@ -20,28 +20,19 @@ raw URL paths and RESTful route definitions, and integrates with
 Request and Response objects to handle client-server communication.
 """
 
+from urllib import request
 from .request import Request
 from .response import Response
 from .dictionary import CaseInsensitiveDict
+import json
+from .response import SESSION_STORE
+import uuid
 
 class HttpAdapter:
     """
     A mutable :class:`HTTP adapter <HTTP adapter>` for managing client connections
     and routing requests.
-
-    The `HttpAdapter` class encapsulates the logic for receiving HTTP requests,
-    dispatching them to appropriate route handlers, and constructing responses.
-    It supports RESTful routing via hooks and integrates with :class:`Request <Request>` 
-    and :class:`Response <Response>` objects for full request lifecycle management.
-
-    Attributes:
-        ip (str): IP address of the client.
-        port (int): Port number of the client.
-        conn (socket): Active socket connection.
-        connaddr (tuple): Address of the connected client.
-        routes (dict): Mapping of route paths to handler functions.
-        request (Request): Request object for parsing incoming data.
-        response (Response): Response object for building and sending replies.
+    ... (Phần Docstring và __attrs__ giữ nguyên) ...
     """
 
     __attrs__ = [
@@ -57,12 +48,7 @@ class HttpAdapter:
     def __init__(self, ip, port, conn, connaddr, routes):
         """
         Initialize a new HttpAdapter instance.
-
-        :param ip (str): IP address of the client.
-        :param port (int): Port number of the client.
-        :param conn (socket): Active socket connection.
-        :param connaddr (tuple): Address of the connected client.
-        :param routes (dict): Mapping of route paths to handler functions.
+        ... (Phần khởi tạo __init__ giữ nguyên) ...
         """
 
         #: IP address.
@@ -83,14 +69,7 @@ class HttpAdapter:
     def handle_client(self, conn, addr, routes):
         """
         Handle an incoming client connection.
-
-        This method reads the request from the socket, prepares the request object,
-        invokes the appropriate route handler if available, builds the response,
-        and sends it back to the client.
-
-        :param conn (socket): The client socket connection.
-        :param addr (tuple): The client's address.
-        :param routes (dict): The route mapping for dispatching requests.
+        ... (Phần Docstring của handle_client giữ nguyên) ...
         """
 
         # Connection handler.
@@ -104,17 +83,157 @@ class HttpAdapter:
 
         # Handle the request
         msg = conn.recv(1024).decode()
+        
+        # Đọc full body nếu có Content-Length
+        content_length = 0
+        if 'Content-Length:' in msg:
+            for line in msg.split('\n'):
+                if line.startswith('Content-Length:'):
+                    content_length = int(line.split(':')[1].strip())
+                    break
+        
+        if content_length > 0:
+            while len(msg.split('\r\n\r\n', 1)[1] if '\r\n\r\n' in msg else '') < content_length:
+                chunk = conn.recv(1024).decode()
+                if not chunk:
+                    break
+                msg += chunk
+
+        print("[HttpAdapter Debug] Raw request:", msg.replace('\n', '\\n'))
         req.prepare(msg, routes)
 
-        # Handle request hook
+        # === BẮT ĐẦU KHỐI SỬA LỖI ===
+        #
+        # Logic điều phối API (Xử lý API hook)
+        #
+        if req.method == 'OPTIONS':
+            print("[HttpAdapter] Handling OPTIONS preflight request for CORS")
+            resp.status_code = 200
+            resp.reason = 'OK'
+            
+            # Phản hồi các header cho phép
+            resp.headers['Access-Control-Allow-Origin'] = '*'
+            resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+            resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+            resp.headers['Content-Length'] = '0' # OPTIONS không có nội dung
+            
+            conn.sendall(resp.build_response_header(req)) # Chỉ gửi header
+            conn.close()
+            return
+        
         if req.hook:
-            print("[HttpAdapter] hook in route-path METHOD {} PATH {}".format(req.hook._route_path,req.hook._route_methods))
-            req.hook(headers = "bksysnet",body = "get in touch")
-            #
-            # TODO: handle for App hook here
-            #
+            try:
+                # 1. Gọi hàm API của bạn (ví dụ: submit_info)
+                #    Nó trả về một DICTIONARY (ví dụ: {'status': 'ok'})
+                result_dict = req.hook(headers=req.headers, body=getattr(req, 'body', None))
 
-        # Build response
+                if isinstance(result_dict, dict):
+                    # 2. Chuyển dictionary thành chuỗi JSON, sau đó thành bytes
+                    result_bytes = json.dumps(result_dict).encode('utf-8')
+                    
+                    # 3. Xây dựng phản hồi (resp)
+                    resp.status_code = 200
+                    resp.reason = 'OK'
+                    resp.headers['Content-Type'] = 'application/json'
+                    # Cho phép CORS (quan trọng cho fetch từ domain/port khác)
+                    resp.headers['Access-Control-Allow-Origin'] = '*' 
+                    resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+                    resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+                    
+                    # 4. GÁN NỘI DUNG. Bước này RẤT QUAN TRỌNG
+                    #    để build_response_header tính Content-Length đúng
+                    resp._content = result_bytes 
+                    
+                    # 5. Gửi header (đã có Content-Length đúng) + nội dung
+                    conn.sendall(resp.build_response_header(req) + resp._content)
+                    conn.close()
+                    return # QUAN TRỌNG: Dừng lại ở đây
+
+                else:
+                    # (Xử lý nếu API của bạn trả về str hoặc thứ gì khác)
+                    print(f"[HttpAdapter] hook returned non-dict: {type(result_dict)}")
+                    return
+
+            except Exception as e:
+                print(f'[HttpAdapter] hook error: {e}')
+                return
+        
+        # === KẾT THÚC KHỐI SỬA LỖI ===
+
+        if req.method == 'POST' and req.path == '/login':
+            body_params = {}
+            if req.body:
+                pairs = req.body.split('&')
+                for pair in pairs:
+                    if '=' in pair: # Đảm bảo pair hợp lệ
+                        key, val = pair.split('=', 1)
+                        body_params[key.strip()] = val.strip()
+
+            username = body_params.get('username')
+            password = body_params.get('password')
+            is_authenticated = False
+            try:
+                with open("db/account.json", "r", encoding="utf-8") as f:
+                    accounts = json.load(f)
+                    for acc in accounts:
+                        if acc.get("username") == username and acc.get("password") == password:
+                            is_authenticated = True
+                            break
+            except FileNotFoundError:
+                print("[HttpAdapter] account.json not found.")
+            except json.JSONDecodeError:
+                print("[HttpAdapter] account.json invalid format!")
+
+            if is_authenticated:
+                sid = str(uuid.uuid4())
+                SESSION_STORE[sid] = username
+                resp.status_code = 200
+                resp.reason = "OK"
+                resp.headers["Set-Cookie"] = f"sessionid={sid}; Path=/; HttpOnly"
+                resp.headers["Location"] = "/index.html"
+                req.path = "/index.html"
+            else:
+                resp.status_code = 401
+                resp.reason = 'Unauthorized'
+                resp._content = (
+                    b"<html><head><title>401 Unauthorized</title></head><body>401 Unauthorized</body></html>"
+                )
+                header = (
+                    f"HTTP/1.1 401 Unauthorized\r\n"
+                    f"Content-Type: text/html\r\n"
+                    f"Content-Length: {len(resp._content)}\r\n"
+                    f"Connection: close\r\n\r\n"
+                ).encode("utf-8")
+                conn.sendall(header + resp._content)
+                conn.close()
+                return
+
+        elif req.method == 'GET':
+            # Sửa lỗi: Lấy cookie từ req.headers (do request.py chuẩn bị)
+            cookies_string = req.headers.get('cookie', '')
+
+            # Cho phép truy cập trực tiếp static files mà không cần auth
+            public_paths = ("/login.html", "/css/", "/js/", "/images/", "/static/")
+            if req.path.startswith(public_paths):
+                resp.status_code = 200
+                resp.reason = "OK"
+
+            # Sửa lỗi: Dùng hàm validate_session từ response.py
+            elif resp.validate_session(cookies_string):
+                if req.path == '/':
+                    req.path = '/index.html'
+                resp.status_code = 200
+                resp.reason = "OK"
+
+            # Còn lại thì bắt redirect về login
+            else:
+                req.path = "/login.html"
+                resp.status_code = 302 # Mã 302 là Redirect
+                resp.reason = "Redirect to login"
+                resp.headers["Location"] = "/login.html"
+
+
+        # Build response (Xử lý file tĩnh - CHỈ CHẠY NẾU req.hook là None)
         response = resp.build_response(req)
 
         #print(response)
@@ -123,23 +242,23 @@ class HttpAdapter:
 
     @property
     def extract_cookies(self, req, resp):
+        # ... (Phần còn lại của file giữ nguyên) ...
         """
         Build cookies from the :class:`Request <Request>` headers.
-
-        :param req:(Request) The :class:`Request <Request>` object.
-        :param resp: (Response) The res:class:`Response <Response>` object.
-        :rtype: cookies - A dictionary of cookie key-value pairs.
+        ...
         """
         cookies = {}
-        for header in headers:
+        for header in req.headers:
             if header.startswith("Cookie:"):
                 cookie_str = header.split(":", 1)[1].strip()
                 for pair in cookie_str.split(";"):
-                    key, value = pair.strip().split("=")
-                    cookies[key] = value
+                    if "=" in pair:
+                        key, value = pair.strip().split("=")
+                        cookies[key] = value
         return cookies
 
     def build_response(self, req, resp):
+        # ... (Phần còn lại của file giữ nguyên) ...
         """Builds a :class:`Response <Response>` object 
 
         :param req: The :class:`Request <Request>` used to generate the response.
@@ -148,8 +267,8 @@ class HttpAdapter:
         """
         response = Response()
 
-        # Set encoding.
-        response.encoding = get_encoding_from_headers(response.headers)
+        # Set default encoding for response
+        response.encoding = 'utf-8' 
         response.raw = resp
         response.reason = response.raw.reason
 
@@ -159,7 +278,8 @@ class HttpAdapter:
             response.url = req.url
 
         # Add new cookies from the server.
-        response.cookies = extract_cookies(req)
+        # Sửa lỗi: extract_cookies cần 2 tham số
+        response.cookies = self.extract_cookies(req, resp)
 
         # Give the Response some context.
         response.request = req
@@ -168,55 +288,14 @@ class HttpAdapter:
         return response
 
     # def get_connection(self, url, proxies=None):
-        # """Returns a url connection for the given URL. 
-
-        # :param url: The URL to connect to.
-        # :param proxies: (optional) A Requests-style dictionary of proxies used on this request.
-        # :rtype: int
-        # """
-
-        # proxy = select_proxy(url, proxies)
-
-        # if proxy:
-            # proxy = prepend_scheme_if_needed(proxy, "http")
-            # proxy_url = parse_url(proxy)
-            # if not proxy_url.host:
-                # raise InvalidProxyURL(
-                    # "Please check proxy URL. It is malformed "
-                    # "and could be missing the host."
-                # )
-            # proxy_manager = self.proxy_manager_for(proxy)
-            # conn = proxy_manager.connection_from_url(url)
-        # else:
-            # # Only scheme should be lower case
-            # parsed = urlparse(url)
-            # url = parsed.geturl()
-            # conn = self.poolmanager.connection_from_url(url)
-
-        # return conn
-
+    # ... (Phần còn lại của file giữ nguyên) ...
 
     def add_headers(self, request):
-        """
-        Add headers to the request.
-
-        This method is intended to be overridden by subclasses to inject
-        custom headers. It does nothing by default.
-
-        
-        :param request: :class:`Request <Request>` to add headers to.
-        """
+        # ... (Phần còn lại của file giữ nguyên) ...
         pass
 
     def build_proxy_headers(self, proxy):
-        """Returns a dictionary of the headers to add to any request sent
-        through a proxy. 
-
-        :class:`HttpAdapter <HttpAdapter>`.
-
-        :param proxy: The url of the proxy being used for this request.
-        :rtype: dict
-        """
+        # ... (Phần còn lại của file giữ nguyên) ...
         headers = {}
         #
         # TODO: build your authentication here
@@ -224,7 +303,7 @@ class HttpAdapter:
         # we provide dummy auth here
         #
         username, password = ("user1", "password")
-
+    
         if username:
             headers["Proxy-Authorization"] = (username, password)
 

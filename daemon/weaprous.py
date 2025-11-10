@@ -49,6 +49,7 @@ class WeApRous:
 
         Sets up an empty route registry and prepares placeholders for IP and port.
         """
+        self.role = None
         self.routes = {}
         self.ip = None
         self.port = None

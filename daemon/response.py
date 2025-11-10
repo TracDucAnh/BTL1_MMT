@@ -1,63 +1,16 @@
-#
-# Copyright (C) 2025 pdnguyen of HCMC University of Technology VNU-HCM.
-# All rights reserved.
-# This file is part of the CO3093/CO3094 course.
-#
-# WeApRous release
-#
-# The authors hereby grant to Licensee personal permission to use
-# and modify the Licensed Source Code for the sole purpose of studying
-# while attending the course
-#
-
-"""
-daemon.response
-~~~~~~~~~~~~~~~~~
-
-This module provides a :class: `Response <Response>` object to manage and persist 
-response settings (cookies, auth, proxies), and to construct HTTP responses
-based on incoming requests. 
-
-The current version supports MIME type detection, content loading and header formatting
-"""
 import datetime
 import os
 import mimetypes
 from .dictionary import CaseInsensitiveDict
+import uuid   # === ADDED FOR COOKIE MANAGEMENT ===
 
 BASE_DIR = ""
+SESSION_STORE = {}
+# === ADDED FOR COOKIE MANAGEMENT ===
+SESSION_STORE = {}  # simple in-memory session store
 
-class Response():   
-    """The :class:`Response <Response>` object, which contains a
-    server's response to an HTTP request.
 
-    Instances are generated from a :class:`Request <Request>` object, and
-    should not be instantiated manually; doing so may produce undesirable
-    effects.
-
-    :class:`Response <Response>` object encapsulates headers, content, 
-    status code, cookies, and metadata related to the request-response cycle.
-    It is used to construct and serve HTTP responses in a custom web server.
-
-    :attrs status_code (int): HTTP status code (e.g., 200, 404).
-    :attrs headers (dict): dictionary of response headers.
-    :attrs url (str): url of the response.
-    :attrsencoding (str): encoding used for decoding response content.
-    :attrs history (list): list of previous Response objects (for redirects).
-    :attrs reason (str): textual reason for the status code (e.g., "OK", "Not Found").
-    :attrs cookies (CaseInsensitiveDict): response cookies.
-    :attrs elapsed (datetime.timedelta): time taken to complete the request.
-    :attrs request (PreparedRequest): the original request object.
-
-    Usage::
-
-      >>> import Response
-      >>> resp = Response()
-      >>> resp.build_response(req)
-      >>> resp
-      <Response>
-    """
-
+class Response():
     __attrs__ = [
         "_content",
         "_header",
@@ -75,198 +28,145 @@ class Response():
         "reason",
     ]
 
-
     def __init__(self, request=None):
-        """
-        Initializes a new :class:`Response <Response>` object.
-
-        : params request : The originating request object.
-        """
-
         self._content = False
         self._content_consumed = False
         self._next = None
-
-        #: Integer Code of responded HTTP Status, e.g. 404 or 200.
         self.status_code = None
-
-        #: Case-insensitive Dictionary of Response Headers.
-        #: For example, ``headers['content-type']`` will return the
-        #: value of a ``'Content-Type'`` response header.
         self.headers = {}
-
-        #: URL location of Response.
         self.url = None
-
-        #: Encoding to decode with when accessing response text.
         self.encoding = None
-
-        #: A list of :class:`Response <Response>` objects from
-        #: the history of the Request.
         self.history = []
-
-        #: Textual reason of responded HTTP Status, e.g. "Not Found" or "OK".
         self.reason = None
-
-        #: A of Cookies the response headers.
         self.cookies = CaseInsensitiveDict()
-
-        #: The amount of time elapsed between sending the request
         self.elapsed = datetime.timedelta(0)
-
-        #: The :class:`PreparedRequest <PreparedRequest>` object to which this
-        #: is a response.
         self.request = None
 
+    # === ADDED FOR COOKIE MANAGEMENT ===
+    def create_session(self, user="guest"):
+        """Create a new session ID and store it in SESSION_STORE."""
+        session_id = str(uuid.uuid4())
+        SESSION_STORE[session_id] = {
+            "user": user,
+            "created_at": datetime.datetime.now(),
+        }
+        return session_id
+
+    def validate_session(self, cookie_header):
+        """Validate cookie from request header."""
+        if not cookie_header:
+            return False
+        parts = cookie_header.split(";")
+        for p in parts:
+            if "sessionid=" in p:
+                sid = p.strip().split("sessionid=")[1]
+                if sid in SESSION_STORE:
+                    return sid
+        return False
 
     def get_mime_type(self, path):
-        """
-        Determines the MIME type of a file based on its path.
-
-        "params path (str): Path to the file.
-
-        :rtype str: MIME type string (e.g., 'text/html', 'image/png').
-        """
-
         try:
             mime_type, _ = mimetypes.guess_type(path)
         except Exception:
             return 'application/octet-stream'
         return mime_type or 'application/octet-stream'
 
-
     def prepare_content_type(self, mime_type='text/html'):
-        """
-        Prepares the Content-Type header and determines the base directory
-        for serving the file based on its MIME type.
-
-        :params mime_type (str): MIME type of the requested resource.
-
-        :rtype str: Base directory path for locating the resource.
-
-        :raises ValueError: If the MIME type is unsupported.
-        """
-        
         base_dir = ""
-
-        # Processing mime_type based on main_type and sub_type
         main_type, sub_type = mime_type.split('/', 1)
-        print("[Response] processing MIME main_type={} sub_type={}".format(main_type,sub_type))
+        print("[Response] processing MIME main_type={} sub_type={}".format(main_type, sub_type))
         if main_type == 'text':
-            self.headers['Content-Type']='text/{}'.format(sub_type)
+            self.headers['Content-Type'] = 'text/{}'.format(sub_type)
             if sub_type == 'plain' or sub_type == 'css':
-                base_dir = BASE_DIR+"static/"
+                base_dir = BASE_DIR + "static/"
             elif sub_type == 'html':
-                base_dir = BASE_DIR+"www/"
+                base_dir = BASE_DIR + "www/"
             else:
-                handle_text_other(sub_type)
+                #handle_text_other(sub_type)
+                base_dir = BASE_DIR+"www/"
         elif main_type == 'image':
-            base_dir = BASE_DIR+"static/"
-            self.headers['Content-Type']='image/{}'.format(sub_type)
+            base_dir = os.path.join(BASE_DIR, "static/")
+            self.headers['Content-Type'] = f"image/{sub_type}"
         elif main_type == 'application':
-            base_dir = BASE_DIR+"apps/"
-            self.headers['Content-Type']='application/{}'.format(sub_type)
-        #
-        #  TODO: process other mime_type
-        #        application/xml       
-        #        application/zip
-        #        ...
-        #        text/csv
-        #        text/xml
-        #        ...
-        #        video/mp4 
-        #        video/mpeg
-        #        ...
-        #
+            base_dir = BASE_DIR + "apps/"
+            self.headers['Content-Type'] = 'application/{}'.format(sub_type)
+        elif main_type == "video":
+            base_dir = BASE_DIR + "videos/"
+            self.headers["Content-Type"] = "videos/{}".format(sub_type)
+        elif main_type == "audio":
+            base_dir = BASE_DIR + "audios/"
+            self.headers["Content-Type"] = "audio/{}".format(sub_type)
+        elif main_type == "application" and sub_type in ["xml", "zip", "json"]:
+            base_dir = BASE_DIR + "apps/"
+            self.headers["Content-Type"] = "application/{}".format(sub_type)
+        elif main_type == "text" and sub_type in ["csv", "xml"]:
+            base_dir = BASE_DIR + "static/"
+            self.headers["Content-Type"] = "text/{}".format(sub_type)
         else:
-            raise ValueError("Invalid MEME type: main_type={} sub_type={}".format(main_type,sub_type))
-
+            raise ValueError("Invalid MEME type: main_type={} sub_type={}".format(main_type, sub_type))
+        
         return base_dir
 
-
     def build_content(self, path, base_dir):
-        """
-        Loads the objects file from storage space.
-
-        :params path (str): relative path to the file.
-        :params base_dir (str): base directory where the file is located.
-
-        :rtype tuple: (int, bytes) representing content length and content data.
-        """
-
         filepath = os.path.join(base_dir, path.lstrip('/'))
-
         print("[Response] serving the object at location {}".format(filepath))
-            #
-            #  TODO: implement the step of fetch the object file
-            #        store in the return value of content
-            #
-        return len(content), content
-
+        try:
+            with open(filepath, 'rb') as f:
+                content = f.read()
+            return len(content), content
+        except FileNotFoundError:
+            print("[Response] File not found: {}".format(filepath))
+            content = b"404 Not Found"
+            return len(content), content
+        except Exception as e:
+            print("[Response] Error reading file: {}".format(e))
+            content = b"500 Internal Server Error"
+            return len(content), content
 
     def build_response_header(self, request):
-        """
-        Constructs the HTTP response headers based on the class:`Request <Request>
-        and internal attributes.
-
-        :params request (class:`Request <Request>`): incoming request object.
-
-        :rtypes bytes: encoded HTTP response header.
-        """
         reqhdr = request.headers
         rsphdr = self.headers
 
-        #Build dynamic headers
+        if not self.status_code:
+            self.status_code = 200
+            self.reason = "OK"
+
         headers = {
-                "Accept": "{}".format(reqhdr.get("Accept", "application/json")),
-                "Accept-Language": "{}".format(reqhdr.get("Accept-Language", "en-US,en;q=0.9")),
-                "Authorization": "{}".format(reqhdr.get("Authorization", "Basic <credentials>")),
-                "Cache-Control": "no-cache",
-                "Content-Type": "{}".format(self.headers['Content-Type']),
-                "Content-Length": "{}".format(len(self._content)),
-#                "Cookie": "{}".format(reqhdr.get("Cookie", "sessionid=xyz789")), #dummy cooki
-        #
-        # TODO prepare the request authentication
-        #
-	# self.auth = ...
-                "Date": "{}".format(datetime.datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT")),
-                "Max-Forward": "10",
-                "Pragma": "no-cache",
-                "Proxy-Authorization": "Basic dXNlcjpwYXNz",  # example base64
-                "Warning": "199 Miscellaneous warning",
-                "User-Agent": "{}".format(reqhdr.get("User-Agent", "Chrome/123.0.0.0")),
-            }
+            "Date": datetime.datetime.now().strftime("%a, %d %b %Y %H:%M:%S GMT"),
+            "Server": "WeApRous/1.0",
+            "Content-Type": rsphdr.get("Content-Type", "text/html"),
+            "Content-Length": str(len(self._content) if self._content else 0),
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "Connection": "close",
+            "User-Agent": reqhdr.get("User-Agent", "WeApRousClient/1.0"),
+        }
 
-        # Header text alignment
-            #
-            #  TODO: implement the header building to create formated
-            #        header from the provied headers
-            #
-        #
-        # TODO prepare the request authentication
-        #
-	# self.auth = ...
-        return str(fmt_header).encode('utf-8')
+        # === ADDED FOR COOKIE MANAGEMENT ===
+        if "Set-Cookie" in rsphdr:
+            headers["Set-Cookie"] = rsphdr["Set-Cookie"]
 
+        if self.status_code == 302 and hasattr(self, "redirect_location"):
+            headers["Location"] = self.redirect_location
+
+        status_line = f"HTTP/1.1 {self.status_code} {self.reason}\r\n"
+        for k, v in headers.items():
+            status_line += f"{k}: {v}\r\n"
+        status_line += "\r\n"
+
+        return status_line.encode("utf-8")
 
     def build_notfound(self):
-        """
-        Constructs a standard 404 Not Found HTTP response.
-
-        :rtype bytes: Encoded 404 response.
-        """
-
         return (
-                "HTTP/1.1 404 Not Found\r\n"
-                "Accept-Ranges: bytes\r\n"
-                "Content-Type: text/html\r\n"
-                "Content-Length: 13\r\n"
-                "Cache-Control: max-age=86000\r\n"
-                "Connection: close\r\n"
-                "\r\n"
-                "404 Not Found"
-            ).encode('utf-8')
-
+            "HTTP/1.1 404 Not Found\r\n"
+            "Accept-Ranges: bytes\r\n"
+            "Content-Type: text/html\r\n"
+            "Content-Length: 13\r\n"
+            "Cache-Control: max-age=86000\r\n"
+            "Connection: close\r\n"
+            "\r\n"
+            "404 Not Found"
+        ).encode('utf-8')
 
     def build_response(self, request):
         """
@@ -278,15 +178,19 @@ class Response():
         """
 
         path = request.path
-
+    
         mime_type = self.get_mime_type(path)
         print("[Response] {} path {} mime_type {}".format(request.method, request.path, mime_type))
 
         base_dir = ""
 
-        #If HTML, parse and serve embedded objects
+        # If HTML, parse and serve embedded objects
         if path.endswith('.html') or mime_type == 'text/html':
             base_dir = self.prepare_content_type(mime_type = 'text/html')
+        elif path.endswith('.js') or mime_type == 'application/javascript':
+            # serve JS from static/
+            self.headers['Content-Type'] = 'application/javascript'
+            base_dir = BASE_DIR + 'static/'
         elif mime_type == 'text/css':
             base_dir = self.prepare_content_type(mime_type = 'text/css')
         #
