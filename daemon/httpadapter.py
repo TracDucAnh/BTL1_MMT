@@ -20,6 +20,7 @@ raw URL paths and RESTful route definitions, and integrates with
 Request and Response objects to handle client-server communication.
 """
 
+from urllib import request
 from .request import Request
 from .response import Response
 from .dictionary import CaseInsensitiveDict
@@ -107,6 +108,60 @@ class HttpAdapter:
         req.prepare(msg, routes)
 
         # Handle request hook
+        if req.method == 'POST' and req.path == '/login':
+            body_params = {}
+            if req.body:
+                pairs = req.body.split('&')
+                for pair in pairs:
+                    key, val = pair.split('=', 1)
+                    body_params[key.strip()] = val.strip()
+            if body_params.get('username') == 'admin' and body_params.get('password') == 'password':
+                resp.status_code = 302
+                resp.headers['Set-Cookie'] = 'auth=true'
+                resp.headers["Location"] = "/index.html"
+                req.path='/index.html'
+                resp.authenticated = True
+            else:
+                resp.status_code = 401
+                resp.reason = 'Unauthorized'
+                resp._content = (
+                    b"<html><head><title>401 Unauthorized</title></head>"
+                    b"<body><h1>401 Unauthorized</h1><p>Invalid username or password.</p></body></html>"
+                )
+                header = (
+                    "HTTP/1.1 401 Unauthorized\r\n"
+                    "Content-Type: text/html\r\n"
+                    f"Content-Length: {len(resp._content)}\r\n"
+                    "Connection: close\r\n\r\n"
+                ).encode("utf-8")
+                conn.sendall(header + resp._content)
+                conn.close()
+                return 
+
+        elif req.method == 'GET':
+            cookies_string = req.headers.get('cookie', '')
+
+            # Cho phép truy cập trực tiếp static files mà không cần auth
+            public_paths = ("/login.html", "/css/", "/js/", "/images/", "/static/")
+            if req.path.startswith(public_paths):
+                resp.status_code = 200
+                resp.reason = "OK"
+
+            # Nếu có cookie auth thì cho vào index
+            elif 'auth=true' in cookies_string:
+                if req.path == '/':
+                    req.path = '/index.html'
+                resp.status_code = 200
+                resp.reason = "OK"
+
+            # Còn lại thì bắt redirect về login
+            else:
+                req.path = "/login.html"
+                resp.status_code = 302
+                resp.reason = "Redirect to login"
+                resp.headers["Location"] = "/login.html"
+
+
         if req.hook:
             print("[HttpAdapter] hook in route-path METHOD {} PATH {}".format(req.hook._route_path,req.hook._route_methods))
             req.hook(headers = "bksysnet",body = "get in touch")
@@ -131,7 +186,7 @@ class HttpAdapter:
         :rtype: cookies - A dictionary of cookie key-value pairs.
         """
         cookies = {}
-        for header in headers:
+        for header in req.headers:
             if header.startswith("Cookie:"):
                 cookie_str = header.split(":", 1)[1].strip()
                 for pair in cookie_str.split(";"):
@@ -148,8 +203,8 @@ class HttpAdapter:
         """
         response = Response()
 
-        # Set encoding.
-        response.encoding = get_encoding_from_headers(response.headers)
+        # Set default encoding for response
+        response.encoding = 'utf-8' 
         response.raw = resp
         response.reason = response.raw.reason
 
@@ -159,7 +214,7 @@ class HttpAdapter:
             response.url = req.url
 
         # Add new cookies from the server.
-        response.cookies = extract_cookies(req)
+        response.cookies = self.extract_cookies(req)
 
         # Give the Response some context.
         response.request = req
@@ -224,7 +279,7 @@ class HttpAdapter:
         # we provide dummy auth here
         #
         username, password = ("user1", "password")
-
+    
         if username:
             headers["Proxy-Authorization"] = (username, password)
 

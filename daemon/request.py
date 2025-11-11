@@ -1,4 +1,3 @@
-#
 # Copyright (C) 2025 pdnguyen of HCMC University of Technology VNU-HCM.
 # All rights reserved.
 # This file is part of the CO3093/CO3094 course.
@@ -19,23 +18,15 @@ request settings (cookies, auth, proxies).
 """
 from .dictionary import CaseInsensitiveDict
 
-class Request():
-    """The fully mutable "class" `Request <Request>` object,
-    containing the exact bytes that will be sent to the server.
 
-    Instances are generated from a "class" `Request <Request>` object, and
-    should not be instantiated manually; doing so may produce undesirable
-    effects.
+class Request:
+    """The fully mutable `Request` object containing
+    the exact bytes that will be sent to the server.
 
-    Usage::
-
-      >>> import deamon.request
-      >>> req = request.Request()
-      ## Incoming message obtain aka. incoming_msg
-      >>> r = req.prepare(incoming_msg)
-      >>> r
-      <Request>
+    Instances are generated from an incoming HTTP message
+    and should not be instantiated manually.
     """
+
     __attrs__ = [
         "method",
         "url",
@@ -43,7 +34,6 @@ class Request():
         "body",
         "reason",
         "cookies",
-        "body",
         "routes",
         "hook",
     ]
@@ -51,20 +41,21 @@ class Request():
     def __init__(self):
         #: HTTP verb to send to the server.
         self.method = None
-        #: HTTP URL to send the request to.
+        #: HTTP URL or path.
         self.url = None
-        #: dictionary of HTTP headers.
-        self.headers = None
-        #: HTTP path
-        self.path = None        
-        # The cookies set used to create Cookie header
-        self.cookies = None
-        #: request body to send to the server.
+        self.path = None
+        #: Dictionary of HTTP headers.
+        self.headers = CaseInsensitiveDict()
+        #: Cookies associated with the request.
+        self.cookies = CaseInsensitiveDict()
+        #: Request body (bytes or string).
         self.body = None
-        #: Routes
+        #: Routes mapping (method, path) → handler.
         self.routes = {}
-        #: Hook point for routed mapped-path
+        #: Hook point for a routed mapped path.
         self.hook = None
+        #: HTTP version.
+        self.version = None
 
     def extract_request_line(self, request):
         try:
@@ -72,78 +63,89 @@ class Request():
             first_line = lines[0]
             method, path, version = first_line.split()
 
-            if path == '/':
-                path = '/index.html'
+            if path == "/":
+                path = "/index.html"
         except Exception:
-            return None, None
+            return None, None, None
 
         return method, path, version
-             
+
     def prepare_headers(self, request):
         """Prepares the given HTTP headers."""
-        lines = request.split('\r\n')
+        lines = request.split("\r\n")
         headers = {}
         for line in lines[1:]:
-            if ': ' in line:
-                key, val = line.split(': ', 1)
+            if ": " in line:
+                key, val = line.split(": ", 1)
                 headers[key.lower()] = val
-        return headers
+        return CaseInsensitiveDict(headers)
 
     def prepare(self, request, routes=None):
         """Prepares the entire request with the given parameters."""
 
-        # Prepare the request line from the request header
+        # Extract request line
         self.method, self.path, self.version = self.extract_request_line(request)
-        print("[Request] {} path {} version {}".format(self.method, self.path, self.version))
+        print(f"[Request] {self.method} path {self.path} version {self.version}")
 
-        #
-        # @bksysnet Preapring the webapp hook with WeApRous instance
-        # The default behaviour with HTTP server is empty routed
-        #
-        # TODO manage the webapp hook in this mounting point
-        #
-        
-        if not routes == {}:
+        # Routing hook
+        if routes:
             self.routes = routes
             self.hook = routes.get((self.method, self.path))
-            #
-            # self.hook manipulation goes here
-            # ...
-            #
 
+        # Parse headers
         self.headers = self.prepare_headers(request)
-        cookies = self.headers.get('cookie', '')
-            #
-            #  TODO: implement the cookie function here
-            #        by parsing the header            #
 
-        return
+        # Parse body (safe split)
+        body_pattern = "\r\n\r\n"
+        body = request.split(body_pattern, 1)[1] if body_pattern in request else ""
+        self.prepare_body(body)
 
-    def prepare_body(self, data, files, json=None):
-        self.prepare_content_length(self.body)
-        self.body = body
-        #
-        # TODO prepare the request authentication
-        #
-	# self.auth = ...
-        return
+        # Parse cookies
+        cookies = self.headers.get("cookie", "")
+        if cookies:
+            self.cookies = self.prepare_cookies(cookies)
+        else:
+            self.cookies = CaseInsensitiveDict()
 
+        return self
+
+    def prepare_body(self, data, files=None, json=None):
+        """Prepare and set the body content."""
+        self.body = data
+        self.prepare_content_length(data)
+        return self
 
     def prepare_content_length(self, body):
-        self.headers["Content-Length"] = "0"
-        #
-        # TODO prepare the request authentication
-        #
-	# self.auth = ...
+        """Ensure Content-Length is present and accurate."""
+        if self.headers is None:
+            self.headers = CaseInsensitiveDict()
+
+        if body is None:
+            self.headers["Content-Length"] = "0"
+            return
+
+        if isinstance(body, (bytes, bytearray)):
+            self.headers["Content-Length"] = str(len(body))
+            return
+
+        try:
+            encoded = str(body).encode()
+            self.headers["Content-Length"] = str(len(encoded))
+        except Exception:
+            self.headers["Content-Length"] = "0"
         return
 
-
     def prepare_auth(self, auth, url=""):
-        #
-        # TODO prepare the request authentication
-        #
-	# self.auth = ...
+        """TODO: Prepare request authentication."""
+        # self.auth = ...
         return
 
     def prepare_cookies(self, cookies):
-            self.headers["Cookie"] = cookies
+        """Parse and store the cookies header."""
+        cookie_dict = CaseInsensitiveDict()
+        for kv in cookies.split(";"):
+            if "=" in kv:
+                k, v = kv.strip().split("=", 1)
+                cookie_dict[k] = v
+        self.headers["Cookie"] = cookies
+        return cookie_dict

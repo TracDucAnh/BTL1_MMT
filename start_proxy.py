@@ -39,9 +39,9 @@ import socket
 import threading
 import argparse
 import re
-from urlparse import urlparse
+from urllib.parse import urlparse
 from collections import defaultdict
-
+import os
 from daemon import create_proxy
 
 PROXY_PORT = 8080
@@ -55,29 +55,39 @@ def parse_virtual_hosts(config_file):
     :rtype list of dict: Each dict contains 'listen'and 'server_name'.
     """
 
+    if not os.path.exists(config_file):
+        raise FileNotFoundError(f"Config file {config_file} not found.")
+
+
     with open(config_file, 'r') as f:
         config_text = f.read()
 
     # Match each host block
     host_blocks = re.findall(r'host\s+"([^"]+)"\s*\{(.*?)\}', config_text, re.DOTALL)
 
+    if len(host_blocks) == 0:
+        raise ValueError("No valid host blocks found in configuration file.")
+
     dist_policy_map = ""
 
     routes = {}
+
     for host, block in host_blocks:
         proxy_map = {}
-
         # Find all proxy_pass entries
         proxy_passes = re.findall(r'proxy_pass\s+http://([^\s;]+);', block)
+        if not proxy_passes:
+            print(f"[WARN] No proxy_pass found for host '{host}'. Skipped.")
+            continue
         map = proxy_map.get(host,[])
         map = map + proxy_passes
         proxy_map[host] = map
 
-        # Find dist_policy if present
-        policy_match = re.search(r'dist_policy\s+(\w+)', block)
+        # Find dist_policy if present (fixed regex)
+        policy_match = re.search(r'dist_policy\s+([A-Za-z0-9\-_]+)', block)
         if policy_match:
-            dist_policy_map = policy_match.group(1)
-        else: #default policy is round_robin
+            dist_policy_map = policy_match.group(1).strip()
+        else: # default policy is round-robin
             dist_policy_map = 'round-robin'
             
         #
@@ -88,16 +98,30 @@ def parse_virtual_hosts(config_file):
         #       the policy is applied to identify the highes matching
         #       proxy_pass
         #
+
         if len(proxy_map.get(host,[])) == 1:
             routes[host] = (proxy_map.get(host,[])[0], dist_policy_map)
-        # esle if:
+        # else if:
         #         TODO:  apply further policy matching here
-        #
+
         else:
-            routes[host] = (proxy_map.get(host,[]), dist_policy_map)
+            policy_lower = dist_policy_map.lower()
+            if policy_lower == "round-robin":
+                routes[host] = (proxy_map.get(host, []), "round-robin")
+            elif policy_lower == "least_conn":
+                routes[host] = (proxy_map.get(host, []), "least_conn")
+            elif policy_lower == "random":
+                routes[host] = (proxy_map.get(host, []), "random")
+            else:
+                print(f"[WARN] Unknown policy '{dist_policy_map}' for host '{host}', fallback to round-robin.")
+                routes[host] = (proxy_map.get(host,[]), "round-robin")
 
     for key, value in routes.items():
-        print key, value
+        print (key, value)
+    
+    for key in routes.keys():
+        print(f"[INFO] Loaded route for host '{key}': {routes[key]}")
+
     return routes
 
 
