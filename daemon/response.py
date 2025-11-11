@@ -41,6 +41,7 @@ class Response():
         self.cookies = CaseInsensitiveDict()
         self.elapsed = datetime.timedelta(0)
         self.request = None
+        self.authenticated = False  # === ADDED ===
 
     # === ADDED FOR COOKIE MANAGEMENT ===
     def create_session(self, user="guest"):
@@ -129,33 +130,37 @@ class Response():
             self.status_code = 200
             self.reason = "OK"
 
-        # === ADDED FOR COOKIE MANAGEMENT ===
-        cookie_header = reqhdr.get("Cookie", "")
-        valid_sid = self.validate_session(cookie_header)
-
-        auth_header = reqhdr.get("Authorization", None)
-        if valid_sid:
-            print(f"[Response] Valid session found: {valid_sid}")
-            self.auth = "Session"
-        elif auth_header:
-            self.auth = auth_header
-            print(f"[Response] Using provided Authorization: {auth_header}")
+        # ============ FIX: SKIP AUTH CHECK IF ALREADY AUTHENTICATED ============
+        if self.authenticated:
+            print("[Response] Request already authenticated, skipping auth check")
         else:
-            # Cho phép static hoặc login không cần auth
-            if request.path.startswith(("/static/", "/css/", "/js/", "/images/")):
-                self.auth = None
-                print("[Response] Static resource → skipping auth check")
-            elif request.path in ["/login", "/login.html"]:
-                self.auth = "Basic dXNlcjpwYXNz"
-                print("[Response] No Authorization found, but /login path allowed")
-                # Khi login → tạo session và gắn cookie
-                sid = self.create_session("admin")
-                rsphdr["Set-Cookie"] = f"sessionid={sid}; Path=/; HttpOnly"
+            # === ADDED FOR COOKIE MANAGEMENT ===
+            cookie_header = reqhdr.get("Cookie", "")
+            valid_sid = self.validate_session(cookie_header)
+
+            auth_header = reqhdr.get("Authorization", None)
+            if valid_sid:
+                print(f"[Response] Valid session found: {valid_sid}")
+                self.auth = "Session"
+            elif auth_header:
+                self.auth = auth_header
+                print(f"[Response] Using provided Authorization: {auth_header}")
             else:
-                self.status_code = 401
-                self.reason = "Unauthorized"
-                self.auth = None
-                print("[Response] No Authorization found → returning 401 Unauthorized")
+                # Cho phép static hoặc login không cần auth
+                if request.path.startswith(("/static/", "/css/", "/js/", "/images/")):
+                    self.auth = None
+                    print("[Response] Static resource → skipping auth check")
+                elif request.path in ["/login", "/login.html"]:
+                    self.auth = "Basic dXNlcjpwYXNz"
+                    print("[Response] No Authorization found, but /login path allowed")
+                    # Khi login → tạo session và gắn cookie
+                    sid = self.create_session("admin")
+                    rsphdr["Set-Cookie"] = f"sessionid={sid}; Path=/; HttpOnly"
+                else:
+                    self.status_code = 401
+                    self.reason = "Unauthorized"
+                    self.auth = None
+                    print("[Response] No Authorization found → returning 401 Unauthorized")
 
         headers = {
             "Date": datetime.datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT"),
@@ -195,6 +200,12 @@ class Response():
         ).encode('utf-8')
 
     def build_response(self, request):
+        # ============ FIX: IF CONTENT ALREADY SET BY HOOK, JUST BUILD HEADER ============
+        if self._content and self.authenticated:
+            print("[Response] Content already set by hook, building header only")
+            self._header = self.build_response_header(request)
+            return self._header + self._content
+
         path = request.path
         mime_type = self.get_mime_type(path)
         print("[Response] {} path {} mime_type {}".format(request.method, request.path, mime_type))

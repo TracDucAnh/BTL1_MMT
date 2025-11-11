@@ -5,10 +5,6 @@
 #
 # WeApRous release
 #
-# The authors hereby grant to Licensee personal permission to use
-# and modify the Licensed Source Code for the sole purpose of studying
-# while attending the course
-#
 
 """
 daemon.httpadapter
@@ -24,6 +20,7 @@ from urllib import request
 from .request import Request
 from .response import Response
 from .dictionary import CaseInsensitiveDict
+import json
 
 class HttpAdapter:
     """
@@ -141,11 +138,26 @@ class HttpAdapter:
         elif req.method == 'GET':
             cookies_string = req.headers.get('cookie', '')
 
-            # Cho phép truy cập trực tiếp static files mà không cần auth
-            public_paths = ("/login.html", "/css/", "/js/", "/images/", "/static/")
-            if req.path.startswith(public_paths):
+            # ============ FIX: ADD API ENDPOINTS TO PUBLIC PATHS ============
+            # Cho phép truy cập API endpoints và static files không cần auth
+            public_paths = (
+                "/login.html", 
+                "/css/", 
+                "/js/", 
+                "/images/", 
+                "/static/",
+                # API endpoints cho tracker
+                "/submit-info",
+                "/get-list",
+                "/connect-peer",
+                "/broadcast-peer",
+                "/send-peer"
+            )
+            
+            if req.path.startswith(public_paths) or req.path in public_paths:
                 resp.status_code = 200
                 resp.reason = "OK"
+                resp.authenticated = True  # Mark as authenticated to skip further checks
 
             # Nếu có cookie auth thì cho vào index
             elif 'auth=true' in cookies_string:
@@ -161,18 +173,51 @@ class HttpAdapter:
                 resp.reason = "Redirect to login"
                 resp.headers["Location"] = "/login.html"
 
+        # ============ FIX: HANDLE POST REQUESTS FOR API ============
+        elif req.method == 'POST':
+            # Bypass authentication for API endpoints
+            api_endpoints = ["/submit-info", "/connect-peer", "/broadcast-peer", "/send-peer"]
+            if req.path in api_endpoints:
+                resp.status_code = 200
+                resp.reason = "OK"
+                resp.authenticated = True
+
 
         if req.hook:
             print("[HttpAdapter] hook in route-path METHOD {} PATH {}".format(req.hook._route_path,req.hook._route_methods))
-            req.hook(headers = "bksysnet",body = "get in touch")
-            #
-            # TODO: handle for App hook here
-            #
+            
+            # ============ FIX: PROPERLY HANDLE HOOK RETURN VALUES ============
+            result = req.hook(headers=req.headers, body=req.body)
+            
+            # Handle tuple return (body, content_type) or (body, content_type, status_code)
+            if isinstance(result, tuple):
+                if len(result) == 2:
+                    body, content_type = result
+                    resp._content = body.encode('utf-8') if isinstance(body, str) else body
+                    resp.headers["Content-Type"] = content_type
+                    resp.status_code = 200
+                elif len(result) == 3:
+                    body, content_type, status_code = result
+                    resp._content = body.encode('utf-8') if isinstance(body, str) else body
+                    resp.headers["Content-Type"] = content_type
+                    resp.status_code = status_code
+            # Handle dict return
+            elif isinstance(result, dict):
+                resp._content = json.dumps(result).encode('utf-8')
+                resp.headers["Content-Type"] = "application/json"
+                resp.status_code = 200
+            # Handle string return
+            elif isinstance(result, str):
+                resp._content = result.encode('utf-8')
+                resp.status_code = 200
+            # Handle bytes return
+            elif isinstance(result, bytes):
+                resp._content = result
+                resp.status_code = 200
 
         # Build response
         response = resp.build_response(req)
 
-        #print(response)
         conn.sendall(response)
         conn.close()
 
@@ -221,35 +266,6 @@ class HttpAdapter:
         response.connection = self
 
         return response
-
-    # def get_connection(self, url, proxies=None):
-        # """Returns a url connection for the given URL. 
-
-        # :param url: The URL to connect to.
-        # :param proxies: (optional) A Requests-style dictionary of proxies used on this request.
-        # :rtype: int
-        # """
-
-        # proxy = select_proxy(url, proxies)
-
-        # if proxy:
-            # proxy = prepend_scheme_if_needed(proxy, "http")
-            # proxy_url = parse_url(proxy)
-            # if not proxy_url.host:
-                # raise InvalidProxyURL(
-                    # "Please check proxy URL. It is malformed "
-                    # "and could be missing the host."
-                # )
-            # proxy_manager = self.proxy_manager_for(proxy)
-            # conn = proxy_manager.connection_from_url(url)
-        # else:
-            # # Only scheme should be lower case
-            # parsed = urlparse(url)
-            # url = parsed.geturl()
-            # conn = self.poolmanager.connection_from_url(url)
-
-        # return conn
-
 
     def add_headers(self, request):
         """

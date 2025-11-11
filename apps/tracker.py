@@ -12,10 +12,12 @@ PEERS = {}
 # 1. /submit-info → Peer registration
 # ----------------------------------------------------------
 @app.route('/submit-info', methods=['POST'])
-def submit_info(headers="guest", body="anonymous"):
+def submit_info(headers, body):
     """
     body: {"ip": "...", "port": 8001}
     """
+    print("DEBUG submit-info headers=", headers)
+    print("DEBUG submit-info body=", body)
     data = json.loads(body)
     ip = data["ip"]
     port = data["port"]
@@ -23,49 +25,49 @@ def submit_info(headers="guest", body="anonymous"):
     key = f"{ip}:{port}"
     PEERS[key] = {"ip": ip, "port": port}
 
-    return {"status": "ok"}
+    return json.dumps({"status": "ok"}), "application/json"
 
 
 # ----------------------------------------------------------
 # 2. /get-list → Peer discovery
 # ----------------------------------------------------------
 @app.route('/get-list', methods=['GET'])
-def get_list(headers="guest", body="anonymous"):
+def get_list(headers, body):
     lst = list(PEERS.values())
-    return {"status": "ok", "peers": lst}
+    return json.dumps({"status": "ok", "peers": lst}), "application/json"
 
 
 # ----------------------------------------------------------
 # 3. /connect-peer → Setup direct P2P connections
 # ----------------------------------------------------------
 @app.route('/connect-peer', methods=['POST'])
-def connect_peer(headers="guest", body="anonymous"):
+def connect_peer(headers, body):
     """
     body: {"from": {"ip":..., "port":...}, "to": {"ip":..., "port":...}}
     """
     data = json.loads(body)
     print("[Tracker] Peer requesting connection:", data)
-    return {"status": "ok"}
+    return json.dumps({"status": "ok"}), "application/json"
 
 
 # ----------------------------------------------------------
 # 4. /broadcast-peer
 # ----------------------------------------------------------
 @app.route('/broadcast-peer', methods=['POST'])
-def broadcast_peer(headers="guest", body="anonymous"):
+def broadcast_peer(headers, body):
     data = json.loads(body)
     print("[Tracker] Broadcast request:", data)
-    return {"status": "ok"}
+    return json.dumps({"status": "ok"}), "application/json"
 
 
 # ----------------------------------------------------------
 # 5. /send-peer → Optional direct messaging request
 # ----------------------------------------------------------
 @app.route('/send-peer', methods=['POST'])
-def send_peer(headers="guest", body="anonymous"):
+def send_peer(headers, body):
     data = json.loads(body)
     print("[Tracker] Peer-to-peer send:", data)
-    return {"status": "ok"}
+    return json.dumps({"status": "ok"}), "application/json"
 
 
 if __name__ == "__main__":
